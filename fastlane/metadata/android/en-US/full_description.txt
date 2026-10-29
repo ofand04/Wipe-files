@@ -1,0 +1,9 @@
+WipeFiles is an Android utility for securely processing and removing selected files.
+Features: 
+• Select files using Android's picker. 
+• AES-256-GCM encryption. 
+• Configurable overwrite passes. 
+• File renaming and deletion. 
+• Operation logs and cancellation support.
+Results depend on storage type and provider capabilities. 
+Complete data erasure cannot be guaranteed on all devices.
