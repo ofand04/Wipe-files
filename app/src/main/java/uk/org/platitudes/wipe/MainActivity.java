@@ -1,5 +1,4 @@
-
-package uk.org.platitudes.wipe;
+package io.github.gorillacoding_hub.wipefiles;
 
 import android.app.Activity;
 import android.app.AlertDialog;
