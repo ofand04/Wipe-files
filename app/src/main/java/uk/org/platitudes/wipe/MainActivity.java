@@ -34,7 +34,7 @@ public class MainActivity extends Activity {
         mEditPasses = findViewById(R.id.editPasses);
 
         Button btnPick = findViewById(R.id.btnPick);
-        Button btnWipe = findViewById(R.id.wipe);
+        Button btnWipe = findViewById(R.id.btnWipe);
 
         btnPick.setOnClickListener(v -> pickFiles());
         btnWipe.setOnClickListener(v -> wipeSelected());
