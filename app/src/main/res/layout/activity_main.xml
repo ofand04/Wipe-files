@@ -1,219 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#080D0C"
-    android:fillViewport="true">
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="24dp">
 
-    <LinearLayout
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Wipe Files Utility"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/btnWipe"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp">
+        android:text="Start Wiping Files"
+        android:backgroundTint="#FF0000"
+        android:textColor="#FFFFFF" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="WIPEFILES"
-            android:textColor="#F0F5F1"
-            android:textSize="34sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="4dp"/>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Select files and remove them"
-            android:textColor="#91A098"
-            android:textSize="14sp"
-            android:layout_marginBottom="20dp"/>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:background="#121B18"
-            android:layout_marginBottom="14dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="SELECT FILES"
-                android:textColor="#9FCBB7"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:layout_marginBottom="12dp"/>
-
-            <Button
-                android:id="@+id/btnPick"
-                android:layout_width="match_parent"
-                android:layout_height="54dp"
-                android:text="SELECT FILES"
-                android:textColor="#07110D"
-                android:textStyle="bold"
-                android:backgroundTint="#9FCBB7"/>
-
-            <TextView
-                android:id="@+id/selectedCount"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="00 FILE(S) SELECTED"
-                android:textColor="#DDE8E1"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="8dp"/>
-
-            <TextView
-                android:id="@+id/selectedFiles"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="No files selected."
-                android:textColor="#A8B5AE"
-                android:textSize="14sp"
-                android:lineSpacingExtra="5dp"
-                android:padding="12dp"
-                android:background="#0B1210"
-                android:textIsSelectable="true"/>
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:background="#121B18"
-            android:layout_marginBottom="14dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="SETTINGS"
-                android:textColor="#9FCBB7"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:layout_marginBottom="10dp"/>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Filename change attempts (1–100)"
-                android:textColor="#F0F5F1"
-                android:textStyle="bold"
-                android:textSize="14sp"/>
-
-            <EditText
-                android:id="@+id/editNameChanges"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:backgroundTint="#78A895"
-                android:inputType="number"
-                android:maxLength="3"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:text="10"
-                android:textColor="#F0F5F1"
-                android:textSize="18sp"
-                android:selectAllOnFocus="true"/>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Overwrite passes (1–100)"
-                android:textColor="#F0F5F1"
-                android:textStyle="bold"
-                android:textSize="14sp"
-                android:layout_marginTop="14dp"/>
-
-            <EditText
-                android:id="@+id/editContentPasses"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:backgroundTint="#78A895"
-                android:inputType="number"
-                android:maxLength="3"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:text="3"
-                android:textColor="#F0F5F1"
-                android:textSize="18sp"
-                android:selectAllOnFocus="true"/>
-
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/btnWipe"
-            android:layout_width="match_parent"
-            android:layout_height="58dp"
-            android:text="CONFIRM &amp; WIPE"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"
-            android:textSize="15sp"
-            android:backgroundTint="#8E3C35"
-            android:layout_marginBottom="10dp"/>
-
-        <Button
-            android:id="@+id/btnCancel"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="CANCEL OPERATION"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"
-            android:backgroundTint="#46534C"
-            android:layout_marginBottom="14dp"/>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:background="#121B18">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="LIVE OPERATION LOG"
-                android:textColor="#9FCBB7"
-                android:textStyle="bold"
-                android:textSize="13sp"
-                android:layout_marginBottom="8dp"/>
-
-            <TextView
-                android:id="@+id/stage"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="READY"
-                android:textColor="#F0F5F1"
-                android:textStyle="bold"
-                android:textSize="16sp"
-                android:layout_marginBottom="8dp"/>
-
-            <ProgressBar
-                android:id="@+id/progressBar"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="8dp"
-                android:max="100"
-                android:progress="0"
-                android:progressTint="#9FCBB7"
-                android:progressBackgroundTint="#2B3932"
-                android:layout_marginBottom="12dp"/>
-
-            <TextView
-                android:id="@+id/status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Select files, review settings, then confirm."
-                android:textColor="#DDE8E1"
-                android:textSize="13sp"
-                android:lineSpacingExtra="4dp"
-                android:textIsSelectable="true"/>
-
-        </LinearLayout>
-
-    </LinearLayout>
-
-</ScrollView>
+</LinearLayout>
