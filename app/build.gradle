@@ -1,0 +1,30 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'uk.org.platitudes.wipe'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "uk.org.platitudes.wipefiles"
+        minSdk 24
+        targetSdk 35
+        versionCode 5
+        versionName "0.5"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+}
