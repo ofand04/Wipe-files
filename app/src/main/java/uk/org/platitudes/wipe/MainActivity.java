@@ -346,34 +346,40 @@ public class MainActivity extends Activity {
     }
 
     private void validateDocumentAccess(Uri uri) throws Exception {
-    // Test actual write access instead of relying on checkUriPermission().
-    try (ParcelFileDescriptor descriptor =
-                 getContentResolver().openFileDescriptor(uri, "rw")) {
-        if (descriptor == null) {
+        int permission = checkUriPermission(uri, android.os.Process.myPid(),
+                android.os.Process.myUid(),
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+        if (permission != PackageManager.PERMISSION_GRANTED) {
             throw new SecurityException(
-                    "Android refused read/write access. "
-                            + "Try selecting the file again using the system picker.");
+                    "Android did not grant write access to this file. "
+                            + "Re-select it using the system picker.");
         }
-    }
 
-    // Check deletion support when the provider supplies capability information.
-    try (Cursor cursor = getContentResolver().query(
-            uri, new String[]{Document.COLUMN_FLAGS}, null, null, null)) {
+        try (Cursor cursor = getContentResolver().query(uri,
+                new String[]{Document.COLUMN_FLAGS}, null, null, null)) {
+            if (cursor == null || !cursor.moveToFirst()) {
+                throw new IllegalStateException(
+                        "Provider did not expose document capabilities.");
+            }
 
-        if (cursor != null && cursor.moveToFirst()) {
             int column = cursor.getColumnIndex(Document.COLUMN_FLAGS);
+            if (column < 0 || cursor.isNull(column)) {
+                throw new IllegalStateException(
+                        "Provider did not report write/delete support.");
+            }
 
-            if (column >= 0 && !cursor.isNull(column)) {
-                int flags = cursor.getInt(column);
-
-                if ((flags & Document.FLAG_SUPPORTS_DELETE) == 0) {
-                    throw new SecurityException(
-                            "This file provider reports that deletion is unsupported.");
-                }
+            int flags = cursor.getInt(column);
+            if ((flags & Document.FLAG_SUPPORTS_WRITE) == 0) {
+                throw new SecurityException(
+                        "Provider does not support writing to this file.");
+            }
+            if ((flags & Document.FLAG_SUPPORTS_DELETE) == 0) {
+                throw new SecurityException(
+                        "Provider does not support deleting this file.");
             }
         }
-    }
-}
+
         try (ParcelFileDescriptor descriptor =
                      getContentResolver().openFileDescriptor(uri, "rw")) {
             if (descriptor == null) {
