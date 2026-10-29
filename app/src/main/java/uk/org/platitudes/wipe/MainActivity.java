@@ -6,6 +6,9 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.Settings;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
@@ -16,11 +19,18 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.security.SecureRandom;
+import java.util.Arrays;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -67,6 +77,53 @@ public class MainActivity extends Activity {
 
         setRunningUi(false);
         refreshSelection();
+        promptForAllFilesAccessIfNeeded();
+    }
+
+    /**
+     * Android does not show a normal runtime permission dialog for all-files access.
+     * On Android 11+, the user must explicitly enable special access in Settings.
+     */
+    private void promptForAllFilesAccessIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()) {
+            appendLog("All-files access: " + (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                    ? "not required by this Android version."
+                    : "granted."));
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Allow full storage access?")
+                .setMessage("WipeFiles needs the Android 'Allow access to manage all files' special access for file operations in shared storage. Android will open Settings so you can enable it. This does not bypass restrictions imposed by individual document providers, and it does not guarantee secure physical erasure.")
+                .setCancelable(false)
+                .setNegativeButton("Not now", (dialog, which) ->
+                        appendLog("Full storage access was not granted. Some operations may be unavailable."))
+                .setPositiveButton("Open settings", (dialog, which) -> openAllFilesAccessSettings())
+                .show();
+    }
+
+    private void openAllFilesAccessSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+            } catch (Exception fallbackError) {
+                appendLog("Could not open all-files access settings: " + safeMessage(fallbackError));
+            }
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            appendLog("All-files access status: "
+                    + (Environment.isExternalStorageManager() ? "granted." : "not granted."));
+        }
     }
 
     private void pickFiles() {
@@ -232,9 +289,16 @@ public class MainActivity extends Activity {
                         }
                     }
 
+                    checkCancel();
+                    logFromWorker("Encrypting " + name + " with AES-256-GCM using a temporary in-memory key.");
+                    long encryptedSize = encryptAndReplaceWithCiphertext(
+                            original, fileNumber, work.size(), name);
+                    logFromWorker("Encrypted content committed. Temporary AES key bytes cleared from the app buffer.");
+
                     for (int pass = 0; pass < passes; pass++) {
                         checkCancel();
-                        overwritePass(original, pass, passes, fileNumber, work.size(), name);
+                        overwritePass(original, encryptedSize, pass, passes,
+                                fileNumber, work.size(), name);
                     }
 
                     Uri working = original;
@@ -299,11 +363,99 @@ public class MainActivity extends Activity {
         }, "WipeFilesWorker").start();
     }
 
-    private void overwritePass(Uri uri, int pass, int totalPasses,
+    /**
+     * Encrypts the selected file to an app-private temporary file with AES-256-GCM,
+     * then replaces the selected document with nonce+ciphertext+authentication tag.
+     * The random key is never persisted. It is zeroed only after the encrypted bytes
+     * have been fully written and synced to the selected document.
+     */
+    private long encryptAndReplaceWithCiphertext(Uri uri, int fileNumber,
+                                                  int fileTotal, String name) throws Exception {
+        checkCancel();
+        byte[] key = new byte[32];
+        byte[] nonce = new byte[12];
+        random.nextBytes(key);
+        random.nextBytes(nonce);
+        File temp = File.createTempFile("wipefiles-", ".enc", getCacheDir());
+        boolean committed = false;
+        long encryptedSize;
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"),
+                    new GCMParameterSpec(128, nonce));
+            try (InputStream input = getContentResolver().openInputStream(uri);
+                 FileOutputStream fileOut = new FileOutputStream(temp)) {
+                if (input == null) throw new IllegalStateException("Cannot read selected file.");
+                fileOut.write(nonce);
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                long read = 0;
+                while ((count = input.read(buffer)) != -1) {
+                    checkCancel();
+                    byte[] encryptedChunk = cipher.update(buffer, 0, count);
+                    if (encryptedChunk != null) fileOut.write(encryptedChunk);
+                    read += count;
+                    update(fileNumber, fileTotal, 10, "AES-256-GCM ENCRYPTION",
+                            name + " · " + formatSize(read) + " encrypted");
+                }
+                byte[] finalChunk = cipher.doFinal();
+                if (finalChunk != null) fileOut.write(finalChunk);
+                Arrays.fill(buffer, (byte) 0);
+                fileOut.flush();
+                fileOut.getFD().sync();
+            }
+            encryptedSize = temp.length();
+            if (encryptedSize < 28) {
+                throw new IllegalStateException("Encrypted output is unexpectedly short.");
+            }
+            checkCancel();
+
+            // rwt requests read/write access and truncation. Providers that refuse it
+            // fail here rather than pretending the selected document was replaced.
+            try (ParcelFileDescriptor descriptor =
+                         getContentResolver().openFileDescriptor(uri, "rwt")) {
+                if (descriptor == null) throw new IllegalStateException("Storage provider denied write access.");
+                try (FileOutputStream output = new FileOutputStream(descriptor.getFileDescriptor());
+                     FileInputStream input = new FileInputStream(temp)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int count;
+                    long copied = 0;
+                    while ((count = input.read(buffer)) != -1) {
+                        output.write(buffer, 0, count);
+                        copied += count;
+                        update(fileNumber, fileTotal, 20, "WRITING ENCRYPTED CONTENT",
+                                name + " · " + formatSize(copied) + " of " + formatSize(encryptedSize));
+                    }
+                    output.flush();
+                    output.getFD().sync();
+                    Arrays.fill(buffer, (byte) 0);
+                    if (copied != encryptedSize) {
+                        throw new IllegalStateException("Encrypted content write was incomplete.");
+                    }
+                }
+            }
+            committed = true;
+            Arrays.fill(key, (byte) 0);
+            return encryptedSize;
+        } finally {
+            // If replacement did not complete, clear the key buffer as we exit; no key
+            // is saved to disk. If replacement did complete, the key was already cleared.
+            Arrays.fill(key, (byte) 0);
+            Arrays.fill(nonce, (byte) 0);
+            if (temp.exists() && !temp.delete()) {
+                logFromWorker("Warning: temporary encrypted cache file could not be deleted immediately.");
+            }
+            if (!committed) {
+                logFromWorker("Encryption/replacement did not complete; check the file before retrying.");
+            }
+        }
+    }
+
+    private void overwritePass(Uri uri, long size, int pass, int totalPasses,
                                int fileNumber, int fileTotal, String name) throws Exception {
         checkCancel();
 
-        long size = fileSize(uri);
+        if (size < 0) size = fileSize(uri);
         if (size < 0) size = measureSize(uri);
         if (size == 0) {
             logFromWorker("File is empty; no content bytes to overwrite: " + name);
