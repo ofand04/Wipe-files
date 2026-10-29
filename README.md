@@ -1,6 +1,6 @@
 # WipeFiles
 
-WipeFiles is an Android file-handling utility designed to let users select files, run an encryption-and-overwrite workflow, and view the progress and outcome of each operation.
+WipeFiles is an Android file-handling utility designed to let users select files, run an encryption-and-overwrite then delete file.
 
 ## What the app does
 
