@@ -167,13 +167,62 @@ public class MainActivity extends Activity {
     }
 
     private void addPickedUri(Uri uri, int flags) {
-        try {
-            getContentResolver().takePersistableUriPermission(uri, flags);
-        } catch (Exception ignored) {
-            // Some document providers do not offer persistable permissions.
+        // Persist only permissions that the picker actually returned. Requesting a
+        // write flag in the picker Intent does not mean the provider granted it.
+        if ((flags & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) != 0) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, flags);
+            } catch (SecurityException | IllegalArgumentException ignored) {
+                // The provider may grant a temporary URI permission only.
+            }
         }
-        if (!selectedFiles.contains(uri)) {
-            selectedFiles.add(uri);
+        if (!selectedFiles.contains(uri)) selectedFiles.add(uri);
+    }
+
+    /**
+     * Validate the SAF grant and document-provider capabilities before any file is
+     * changed. All-files access is not a substitute for a document URI grant.
+     */
+    private void validateDocumentAccess(Uri uri) throws Exception {
+        int permission = checkUriPermission(uri, android.os.Process.myPid(),
+                android.os.Process.myUid(), Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            throw new SecurityException("Android did not grant write access to this selected document. "
+                    + "Re-select it in the system picker and choose a provider that permits editing.");
+        }
+
+        String authority = uri.getAuthority();
+        if (authority == null || !"com.android.externalstorage.documents".equals(authority)
+                && !"com.android.providers.downloads.documents".equals(authority)
+                && !authority.endsWith(".documents")) {
+            // Other providers are still allowed if their metadata advertises capabilities.
+        }
+
+        try (Cursor cursor = getContentResolver().query(uri,
+                new String[]{DocumentsContract.Document.COLUMN_FLAGS}, null, null, null)) {
+            if (cursor == null || !cursor.moveToFirst()) {
+                throw new IllegalStateException("The storage provider did not expose document capabilities. "
+                        + "WipeFiles cannot safely modify this item.");
+            }
+            int flagsColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS);
+            if (flagsColumn < 0 || cursor.isNull(flagsColumn)) {
+                throw new IllegalStateException("The storage provider did not report write/delete support. "
+                        + "WipeFiles will not modify this file.");
+            }
+            int documentFlags = cursor.getInt(flagsColumn);
+            if ((documentFlags & DocumentsContract.Document.FLAG_SUPPORTS_WRITE) == 0) {
+                throw new SecurityException("This provider does not support writing to the selected document.");
+            }
+            if ((documentFlags & DocumentsContract.Document.FLAG_SUPPORTS_DELETE) == 0) {
+                throw new SecurityException("This provider does not support deleting the selected document.");
+            }
+        }
+
+        // Opening in rw mode checks that a read/write descriptor can be obtained
+        // without truncating the original (unlike rwt, which truncates immediately).
+        try (ParcelFileDescriptor descriptor = getContentResolver().openFileDescriptor(uri, "rw")) {
+            if (descriptor == null) throw new SecurityException("Provider refused read/write access.");
         }
     }
 
@@ -268,6 +317,29 @@ public class MainActivity extends Activity {
             int failed = 0;
             int cancelled = 0;
 
+            // Preflight every selected item before modifying the first one. This
+            // prevents a later unsupported URI from being discovered after earlier
+            // files have already been encrypted or overwritten.
+            try {
+                for (Uri uri : work) {
+                    checkCancel();
+                    validateDocumentAccess(uri);
+                }
+                logFromWorker("Storage access preflight passed for all selected files.");
+            } catch (Cancelled e) {
+                logFromWorker("CANCELLED before changes: access preflight.");
+                runOnUiThread(() -> { setRunningUi(false); stageView.setText("CANCELLED"); });
+                return;
+            } catch (Exception e) {
+                logFromWorker("STOPPED BEFORE CHANGES: " + safeMessage(e));
+                runOnUiThread(() -> {
+                    setRunningUi(false);
+                    stageView.setText("ACCESS DENIED");
+                    statusView.setText(operationLog.toString());
+                });
+                return;
+            }
+
             for (int index = 0; index < work.size(); index++) {
                 if (cancelRequested) break;
 
@@ -280,15 +352,8 @@ public class MainActivity extends Activity {
                     update(fileNumber, work.size(), 0, "CHECKING ACCESS",
                             "Checking write access for " + name);
 
-                    // Check permission before modifying anything.
-                    try (ParcelFileDescriptor descriptor =
-                                 getContentResolver().openFileDescriptor(original, "rw")) {
-                        if (descriptor == null) {
-                            throw new IllegalStateException(
-                                    "Write access was not granted. Select the file again.");
-                        }
-                    }
-
+                    // Repeat the capability check immediately before touching this file.
+                    validateDocumentAccess(original);
                     checkCancel();
                     logFromWorker("Encrypting " + name + " with AES-256-GCM using a temporary in-memory key.");
                     long encryptedSize = encryptAndReplaceWithCiphertext(
@@ -301,34 +366,18 @@ public class MainActivity extends Activity {
                                 fileNumber, work.size(), name);
                     }
 
-                    Uri working = original;
-                    int renamed = 0;
-                    for (int attempt = 0; attempt < renameAttempts; attempt++) {
-                        checkCancel();
-                        update(fileNumber, work.size(), 90, "RENAMING FILE",
-                                name + " · attempt " + (attempt + 1) + "/" + renameAttempts);
-                        try {
-                            Uri next = DocumentsContract.renameDocument(
-                                    getContentResolver(), working, "wipe-" + randomHex(12));
-                            if (next == null) break;
-                            working = next;
-                            renamed++;
-                        } catch (Exception unsupported) {
-                            logFromWorker("Rename not supported by this storage provider.");
-                            break;
-                        }
-                    }
-
+                    // Renaming is optional and provider-specific. Do not attempt it:
+                    // deletion should use the original granted URI directly.
                     checkCancel();
                     update(fileNumber, work.size(), 97, "DELETING FILE", name);
-                    if (!DocumentsContract.deleteDocument(getContentResolver(), working)) {
+                    if (!DocumentsContract.deleteDocument(getContentResolver(), original)) {
                         throw new IllegalStateException(
                                 "The storage provider did not confirm deletion.");
                     }
 
                     deleted++;
-                    logFromWorker("SUCCESS: " + name + " — deleted; overwrite passes attempted: "
-                            + passes + "; filename changes: " + renamed + ".");
+                    logFromWorker("SUCCESS: " + name + " — provider confirmed deletion; overwrite passes attempted: "
+                            + passes + ". Filename changes are skipped because providers may not support renaming.");
                 } catch (Cancelled e) {
                     cancelled++;
                     logFromWorker("CANCELLED: " + name
