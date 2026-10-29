@@ -379,8 +379,9 @@ public class MainActivity extends Activity {
             }
         }
     }
+}
 
-    private void refreshSelection() {
+private void refreshSelection() {
         if (selectedCount == null) return;
 
         selectedCount.setText(String.format(Locale.getDefault(),
