@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#080D0C" android:fillViewport="true">
 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="WIPEFILES" android:textColor="#F0F5F1" android:textSize="34sp" android:textStyle="bold" android:layout_marginBottom="4dp"/>
-<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="File deletion utility" android:textColor="#91A098" android:textSize="14sp" android:layout_marginBottom="20dp"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AES-256 encrypted wipe" android:textColor="#91A098" android:textSize="14sp" android:layout_marginBottom="20dp"/>
 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp" android:background="#121B18" android:layout_marginBottom="14dp">
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SELECT FILES" android:textColor="#9FCBB7" android:textStyle="bold" android:textSize="13sp" android:layout_marginBottom="12dp"/>
 <Button android:id="@+id/btnPick" android:layout_width="match_parent" android:layout_height="54dp" android:text="SELECT FILES" android:textColor="#07110D" android:textStyle="bold" android:backgroundTint="#9FCBB7"/>
@@ -13,8 +13,8 @@
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SETTINGS" android:textColor="#9FCBB7" android:textStyle="bold" android:textSize="13sp" android:layout_marginBottom="10dp"/>
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Filename change attempts (1–100)" android:textColor="#F0F5F1" android:textStyle="bold" android:textSize="14sp"/>
 <EditText android:id="@+id/editNameChanges" android:layout_width="match_parent" android:layout_height="52dp" android:backgroundTint="#78A895" android:inputType="number" android:maxLength="3" android:paddingStart="14dp" android:paddingEnd="14dp" android:text="10" android:textColor="#F0F5F1" android:textSize="18sp" android:selectAllOnFocus="true"/>
-<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Random overwrite passes (1–10)" android:textColor="#F0F5F1" android:textStyle="bold" android:textSize="14sp" android:layout_marginTop="14dp"/>
-<EditText android:id="@+id/editContentPasses" android:layout_width="match_parent" android:layout_height="52dp" android:backgroundTint="#78A895" android:inputType="number" android:maxLength="2" android:paddingStart="14dp" android:paddingEnd="14dp" android:text="3" android:textColor="#F0F5F1" android:textSize="18sp" android:selectAllOnFocus="true"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Random overwrite passes (1–100)" android:textColor="#F0F5F1" android:textStyle="bold" android:textSize="14sp" android:layout_marginTop="14dp"/>
+<EditText android:id="@+id/editContentPasses" android:layout_width="match_parent" android:layout_height="52dp" android:backgroundTint="#78A895" android:inputType="number" android:maxLength="3" android:paddingStart="14dp" android:paddingEnd="14dp" android:text="3" android:textColor="#F0F5F1" android:textSize="18sp" android:selectAllOnFocus="true"/>
 </LinearLayout>
 <Button android:id="@+id/btnWipe" android:layout_width="match_parent" android:layout_height="58dp" android:text="CONFIRM &amp; WIPE" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="15sp" android:backgroundTint="#8E3C35" android:layout_marginBottom="10dp"/>
 <Button android:id="@+id/btnCancel" android:layout_width="match_parent" android:layout_height="52dp" android:text="CANCEL OPERATION" android:textColor="#FFFFFF" android:textStyle="bold" android:backgroundTint="#46534C" android:layout_marginBottom="14dp"/>
@@ -24,5 +24,5 @@
 <ProgressBar android:id="@+id/progressBar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="8dp" android:max="100" android:progress="0" android:progressTint="#9FCBB7" android:progressBackgroundTint="#2B3932" android:layout_marginBottom="12dp"/>
 <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Select files, review settings, then confirm." android:textColor="#DDE8E1" android:textSize="13sp" android:lineSpacingExtra="4dp" android:textIsSelectable="true"/>
 </LinearLayout>
-<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Android storage providers may restrict overwriting. Deletion does not prove physical erasure." android:textColor="#718078" android:textSize="11sp" android:gravity="center" android:layout_marginTop="14dp" android:layout_marginBottom="8dp"/>
+
 </LinearLayout></ScrollView>
