@@ -3,12 +3,13 @@ package uk.org.platitudes.wipe;
 import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
-import android.view.View;
+import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -32,30 +33,73 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Main container - ScrollView
+        ScrollView scrollView = new ScrollView(this);
+        int marginPx = (int) (16 * getResources().getDisplayMetrics().density);
+        scrollView.setPadding(marginPx, marginPx, marginPx, marginPx);
+
+        // Inner linear layout
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        root.setPadding(pad, pad, pad, pad);
+        root.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
 
+        // Title
+        TextView title = new TextView(this);
+        title.setText("🗑️ WipeFiles");
+        title.setTextSize(24);
+        title.setTextColor(Color.BLACK);
+        title.setPadding(0, 0, 0, (int) (16 * getResources().getDisplayMetrics().density));
+        root.addView(title);
+
+        // Pick button
         Button pick = new Button(this);
-        pick.setText("Choose files to wipe");
+        pick.setText("📁 Choose files to wipe");
+        pick.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
         pick.setOnClickListener(v -> pickFiles());
-        root.addView(pick);
+        root.addView(pick, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        // Space
+        TextView space = new TextView(this);
+        space.setText("\n");
+        root.addView(space);
+
+        // Wipe button
         Button wipe = new Button(this);
-        wipe.setText("WIPE SELECTED FILES FOREVER");
+        wipe.setText("☢️ WIPE SELECTED FILES FOREVER");
+        wipe.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
         wipe.setOnClickListener(v -> wipeSelected());
-        root.addView(wipe);
+        root.addView(wipe, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        // Space
+        TextView space2 = new TextView(this);
+        space2.setText("\n");
+        root.addView(space2);
+
+        // Status text
         mStatus = new TextView(this);
-        mStatus.setText("No files selected.");
+        mStatus.setText("Nothing selected — choose files first.");
         mStatus.setTextIsSelectable(true);
+        mStatus.setTextColor(Color.GRAY);
+        mStatus.setPadding(0, (int) (8 * getResources().getDisplayMetrics().density), 0, 0);
+        mStatus.setTextSize(14);
         root.addView(mStatus, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        ScrollView scroll = new ScrollView(this);
-        setContentView(root);
+        // Add root to scrollview, then set scrollview as content view
+        scrollView.addView(root);
+        setContentView(scrollView);
     }
 
     private void pickFiles() {
@@ -196,4 +240,4 @@ public class MainActivity extends Activity {
             }
         }
     }
-                     }
+                        }
