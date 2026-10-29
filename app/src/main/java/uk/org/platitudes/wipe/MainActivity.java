@@ -3,17 +3,15 @@ package uk.org.platitudes.wipe;
 import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
-import android.view.Gravity;
 import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
+import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.FileOutputStream;
 import java.security.SecureRandom;
@@ -23,83 +21,23 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     private static final int PICK_FILES = 42;
-    private static final int NUM_PASSES = 3;
-    private static final int BUF_SIZE = 64 * 1024;
-
     private final List<Uri> mSelected = new ArrayList<>();
     private TextView mStatus;
+    private EditText mEditPasses;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
-        // Main container - ScrollView
-        ScrollView scrollView = new ScrollView(this);
-        int marginPx = (int) (16 * getResources().getDisplayMetrics().density);
-        scrollView.setPadding(marginPx, marginPx, marginPx, marginPx);
+        mStatus = findViewById(R.id.status);
+        mEditPasses = findViewById(R.id.editPasses);
 
-        // Inner linear layout
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        Button btnPick = findViewById(R.id.btnPick);
+        Button btnWipe = findViewById(R.id.wipe);
 
-        // Title
-        TextView title = new TextView(this);
-        title.setText("🗑️ WipeFiles");
-        title.setTextSize(24);
-        title.setTextColor(Color.BLACK);
-        title.setPadding(0, 0, 0, (int) (16 * getResources().getDisplayMetrics().density));
-        root.addView(title);
-
-        // Pick button
-        Button pick = new Button(this);
-        pick.setText("📁 Choose files to wipe");
-        pick.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        pick.setOnClickListener(v -> pickFiles());
-        root.addView(pick, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        // Space
-        TextView space = new TextView(this);
-        space.setText("\n");
-        root.addView(space);
-
-        // Wipe button
-        Button wipe = new Button(this);
-        wipe.setText("☢️ WIPE SELECTED FILES FOREVER");
-        wipe.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        wipe.setOnClickListener(v -> wipeSelected());
-        root.addView(wipe, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        // Space
-        TextView space2 = new TextView(this);
-        space2.setText("\n");
-        root.addView(space2);
-
-        // Status text
-        mStatus = new TextView(this);
-        mStatus.setText("Nothing selected — choose files first.");
-        mStatus.setTextIsSelectable(true);
-        mStatus.setTextColor(Color.GRAY);
-        mStatus.setPadding(0, (int) (8 * getResources().getDisplayMetrics().density), 0, 0);
-        mStatus.setTextSize(14);
-        root.addView(mStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        // Add root to scrollview, then set scrollview as content view
-        scrollView.addView(root);
-        setContentView(scrollView);
+        btnPick.setOnClickListener(v -> pickFiles());
+        btnWipe.setOnClickListener(v -> wipeSelected());
     }
 
     private void pickFiles() {
@@ -132,9 +70,19 @@ public class MainActivity extends Activity {
         for (Uri u : mSelected) {
             sb.append("  • ").append(displayName(u)).append('\n');
         }
-        sb.append("\nEach file will be overwritten with ")
-          .append(NUM_PASSES).append(" passes of random data, then deleted.");
+        int passes = getPasses();
+        sb.append("\nEach file will be overwritten ").append(passes)
+          .append(" times with random data, then deleted.");
         mStatus.setText(sb.toString());
+    }
+
+    private int getPasses() {
+        try {
+            int p = Integer.parseInt(mEditPasses.getText().toString().trim());
+            return Math.max(1, Math.min(p, 10));
+        } catch (NumberFormatException e) {
+            return 3;
+        }
     }
 
     private String displayName(Uri uri) {
@@ -162,7 +110,7 @@ public class MainActivity extends Activity {
 
     private void wipeSelected() {
         if (mSelected.isEmpty()) {
-            mStatus.setText("Nothing selected — choose files first.");
+            Toast.makeText(this, "Choose files first", Toast.LENGTH_SHORT).show();
             return;
         }
         final List<Uri> toWipe = new ArrayList<>(mSelected);
@@ -170,39 +118,42 @@ public class MainActivity extends Activity {
 
         new Thread(() -> {
             StringBuilder results = new StringBuilder();
+            int passes = getPasses();
             for (Uri uri : toWipe) {
                 String name = displayName(uri);
                 try {
-                    wipeOne(uri);
-                    results.append("✔ wiped and deleted: ").append(name).append('\n');
+                    wipeOne(uri, passes);
+                    results.append("✔ wiped & deleted: ").append(name).append('\n');
                 } catch (Exception e) {
                     results.append("✘ FAILED (").append(name).append("): ")
                            .append(e.getMessage()).append('\n');
                 }
             }
-            results.append("\nDone. Storage note: on flash storage, overwriting "
-                    + "reduces but cannot guarantee recovery-proof erasure "
-                    + "(wear-leveling). Best-effort only.");
+            results.append("\nDone. Note: Flash wear-leveling means overwrite ");
+            results.append("reduces but cannot guarantee recovery-proof erasure.\n");
+            results.append("Modern Android encryption usually makes deleted ");
+            results.append("files unrecoverable anyway.");
             runOnUiThread(() -> {
                 mSelected.clear();
                 mStatus.setText(results.toString());
+                mEditPasses.setText("3");
             });
         }).start();
     }
 
-    private void wipeOne(Uri uri) throws Exception {
+    private void wipeOne(Uri uri, int numPasses) throws Exception {
         long size = fileSize(uri);
         if (size == 0) {
             // Empty file
         } else if (size < 0) {
-            overwriteStreaming(uri, 1024 * 1024);
+            overwriteStreaming(uri, 1024 * 1024, numPasses);
         } else {
-            for (int pass = 0; pass < NUM_PASSES; pass++) {
+            for (int pass = 0; pass < numPasses; pass++) {
                 try (ParcelFileDescriptor pfd =
                              getContentResolver().openFileDescriptor(uri, "rw")) {
                     if (pfd == null) throw new IllegalStateException("cannot open for write");
                     SecureRandom rnd = new SecureRandom();
-                    byte[] buf = new byte[BUF_SIZE];
+                    byte[] buf = new byte[64 * 1024];
                     try (FileOutputStream out = new FileOutputStream(pfd.getFileDescriptor())) {
                         long written = 0;
                         while (written < size) {
@@ -222,22 +173,24 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void overwriteStreaming(Uri uri, long maxBytes) throws Exception {
+    private void overwriteStreaming(Uri uri, long maxBytes, int numPasses) throws Exception {
         SecureRandom rnd = new SecureRandom();
-        byte[] buf = new byte[BUF_SIZE];
-        try (ParcelFileDescriptor pfd =
-                     getContentResolver().openFileDescriptor(uri, "rwt")) {
-            if (pfd == null) throw new IllegalStateException("cannot open for write");
-            try (FileOutputStream out = new FileOutputStream(pfd.getFileDescriptor())) {
-                long written = 0;
-                while (written < maxBytes) {
-                    rnd.nextBytes(buf);
-                    out.write(buf);
-                    written += buf.length;
+        byte[] buf = new byte[64 * 1024];
+        for (int pass = 0; pass < numPasses; pass++) {
+            try (ParcelFileDescriptor pfd =
+                         getContentResolver().openFileDescriptor(uri, "rwt")) {
+                if (pfd == null) throw new IllegalStateException("cannot open for write");
+                try (FileOutputStream out = new FileOutputStream(pfd.getFileDescriptor())) {
+                    long written = 0;
+                    while (written < maxBytes) {
+                        rnd.nextBytes(buf);
+                        out.write(buf);
+                        written += buf.length;
+                    }
+                    out.flush();
+                    out.getFD().sync();
                 }
-                out.flush();
-                out.getFD().sync();
             }
         }
     }
-                        }
+    }
