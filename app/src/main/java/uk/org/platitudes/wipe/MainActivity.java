@@ -1,3 +1,4 @@
+
 package uk.org.platitudes.wipe;
 
 import android.app.Activity;
@@ -13,6 +14,8 @@ import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.graphics.Color;
+import android.provider.DocumentsContract.Document;
+import android.content.pm.PackageManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ProgressBar;
@@ -23,7 +26,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.security.SecureRandom;
@@ -32,13 +34,18 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class MainActivity extends Activity {
     private static final int PICK_FILES = 42;
+    private static final int PICK_FOLDER = 43;
     private static final int MAX_PASSES = 100;
     private static final int MAX_RENAME_ATTEMPTS = 100;
+    private static final int MAX_FOLDER_FILES = 10000;
+    private static final int MAX_FOLDER_DEPTH = 50;
 
     private final List<Uri> selectedFiles = new ArrayList<>();
     private final SecureRandom random = new SecureRandom();
@@ -49,7 +56,7 @@ public class MainActivity extends Activity {
 
     private TextView selectedCount, selectedFilesView, statusView, stageView;
     private EditText editNameChanges, editContentPasses;
-    private Button pickButton, wipeButton, cancelButton;
+    private Button pickButton, pickFolderButton, wipeButton, cancelButton;
     private ProgressBar progressBar;
 
     @Override
@@ -68,10 +75,12 @@ public class MainActivity extends Activity {
         editNameChanges = findViewById(R.id.editNameChanges);
         editContentPasses = findViewById(R.id.editContentPasses);
         pickButton = findViewById(R.id.btnPick);
+        pickFolderButton = findViewById(R.id.btnPickFolder);
         wipeButton = findViewById(R.id.btnWipe);
         cancelButton = findViewById(R.id.btnCancel);
 
         pickButton.setOnClickListener(v -> pickFiles());
+        pickFolderButton.setOnClickListener(v -> pickFolder());
         wipeButton.setOnClickListener(v -> confirmWipe());
         cancelButton.setOnClickListener(v -> requestCancel());
 
@@ -80,39 +89,41 @@ public class MainActivity extends Activity {
         promptForAllFilesAccessIfNeeded();
     }
 
-    /**
-     * Android does not show a normal runtime permission dialog for all-files access.
-     * On Android 11+, the user must explicitly enable special access in Settings.
-     */
     private void promptForAllFilesAccessIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()) {
-            appendLog("All-files access: " + (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
-                    ? "not required by this Android version."
-                    : "granted."));
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                || Environment.isExternalStorageManager()) {
+            appendLog("All-files access: "
+                    + (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                    ? "not required by this Android version." : "granted."));
             return;
         }
 
         new AlertDialog.Builder(this)
                 .setTitle("Allow full storage access?")
-                .setMessage("WipeFiles needs the Android 'Allow access to manage all files' special access for file operations in shared storage. Android will open Settings so you can enable it. This does not bypass restrictions imposed by individual document providers, and it does not guarantee secure physical erasure.")
+                .setMessage("WipeFiles may need Android's all-files access for shared storage. "
+                        + "Enable it in Settings if required. This does not bypass document-provider "
+                        + "restrictions or guarantee physical erasure.")
                 .setCancelable(false)
-                .setNegativeButton("Not now", (dialog, which) ->
-                        appendLog("Full storage access was not granted. Some operations may be unavailable."))
-                .setPositiveButton("Open settings", (dialog, which) -> openAllFilesAccessSettings())
+                .setNegativeButton("Not now", (d, w) ->
+                        appendLog("Full storage access was not granted."))
+                .setPositiveButton("Open settings", (d, w) ->
+                        openAllFilesAccessSettings())
                 .show();
     }
 
     private void openAllFilesAccessSettings() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
         try {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
             intent.setData(Uri.parse("package:" + getPackageName()));
             startActivity(intent);
         } catch (Exception e) {
             try {
-                startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-            } catch (Exception fallbackError) {
-                appendLog("Could not open all-files access settings: " + safeMessage(fallbackError));
+                startActivity(new Intent(
+                        Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+            } catch (Exception fallback) {
+                appendLog("Could not open settings: " + safeMessage(fallback));
             }
         }
     }
@@ -122,7 +133,8 @@ public class MainActivity extends Activity {
         super.onResume();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             appendLog("All-files access status: "
-                    + (Environment.isExternalStorageManager() ? "granted." : "not granted."));
+                    + (Environment.isExternalStorageManager()
+                    ? "granted." : "not granted."));
         }
     }
 
@@ -138,18 +150,58 @@ public class MainActivity extends Activity {
         try {
             startActivityForResult(intent, PICK_FILES);
         } catch (Exception e) {
-            appendLog("Could not open Android file picker: " + safeMessage(e));
+            appendLog("Could not open file picker: " + safeMessage(e));
+        }
+    }
+
+    private void pickFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+
+        try {
+            startActivityForResult(intent, PICK_FOLDER);
+        } catch (Exception e) {
+            appendLog("Could not open folder picker: " + safeMessage(e));
         }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_FILES || resultCode != RESULT_OK || data == null) {
+
+        if (resultCode != RESULT_OK || data == null) {
+            if (requestCode == PICK_FILES || requestCode == PICK_FOLDER) {
+                appendLog("Selection cancelled.");
+            }
             return;
         }
 
-        selectedFiles.clear();
+        if (requestCode == PICK_FOLDER) {
+            Uri treeUri = data.getData();
+            if (treeUri == null) {
+                appendLog("No folder was returned by Android.");
+                return;
+            }
+
+            int flags = data.getFlags()
+                    & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+            try {
+                getContentResolver().takePersistableUriPermission(treeUri, flags);
+            } catch (SecurityException | IllegalArgumentException e) {
+                appendLog("Could not retain folder access: " + safeMessage(e));
+                return;
+            }
+
+            scanFolder(treeUri);
+            return;
+        }
+
+        if (requestCode != PICK_FILES) return;
+
         int flags = data.getFlags()
                 & (Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
@@ -167,62 +219,173 @@ public class MainActivity extends Activity {
     }
 
     private void addPickedUri(Uri uri, int flags) {
-        // Persist only permissions that the picker actually returned. Requesting a
-        // write flag in the picker Intent does not mean the provider granted it.
         if ((flags & (Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) != 0) {
             try {
                 getContentResolver().takePersistableUriPermission(uri, flags);
             } catch (SecurityException | IllegalArgumentException ignored) {
-                // The provider may grant a temporary URI permission only.
+                // A temporary grant may still be usable.
             }
         }
         if (!selectedFiles.contains(uri)) selectedFiles.add(uri);
     }
 
-    /**
-     * Validate the SAF grant and document-provider capabilities before any file is
-     * changed. All-files access is not a substitute for a document URI grant.
-     */
-    private void validateDocumentAccess(Uri uri) throws Exception {
-        int permission = checkUriPermission(uri, android.os.Process.myPid(),
-                android.os.Process.myUid(), Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            throw new SecurityException("Android did not grant write access to this selected document. "
-                    + "Re-select it in the system picker and choose a provider that permits editing.");
+    private void scanFolder(Uri treeUri) {
+        setRunningUi(true);
+        stageView.setText("SCANNING FOLDER");
+        appendLog("Scanning selected folder and its subfolders...");
+
+        new Thread(() -> {
+            List<Uri> found = new ArrayList<>();
+            Set<String> visited = new HashSet<>();
+            String error = null;
+
+            try {
+                Uri rootDocument = DocumentsContract
+                        .getTreeDocumentId(treeUri) == null
+                        ? treeUri
+                        : DocumentsContract.buildDocumentUriUsingTree(
+                                treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+
+                collectFolderFiles(treeUri, rootDocument, found, visited, 0);
+            } catch (Exception e) {
+                error = safeMessage(e);
+            }
+
+            final String scanError = error;
+            runOnUiThread(() -> {
+                setRunningUi(false);
+
+                if (scanError != null) {
+                    stageView.setText("FOLDER SCAN FAILED");
+                    appendLog("Folder scan failed: " + scanError);
+                    return;
+                }
+
+                int added = 0;
+                for (Uri uri : found) {
+                    if (!selectedFiles.contains(uri)) {
+                        selectedFiles.add(uri);
+                        added++;
+                    }
+                }
+
+                refreshSelection();
+                stageView.setText("READY");
+                appendLog("Folder scan finished. Files found: " + found.size()
+                        + "; newly added: " + added
+                        + ". Review the list before confirming a wipe.");
+            });
+        }, "WipeFilesFolderScanner").start();
+    }
+
+    private void collectFolderFiles(Uri treeUri, Uri directoryUri,
+                                    List<Uri> found, Set<String> visited,
+                                    int depth) throws Exception {
+        if (depth > MAX_FOLDER_DEPTH) {
+            throw new IllegalStateException("Folder nesting limit reached.");
+        }
+        if (found.size() >= MAX_FOLDER_FILES) {
+            throw new IllegalStateException("Folder file limit reached.");
         }
 
-        String authority = uri.getAuthority();
-        if (authority == null || !"com.android.externalstorage.documents".equals(authority)
-                && !"com.android.providers.downloads.documents".equals(authority)
-                && !authority.endsWith(".documents")) {
-            // Other providers are still allowed if their metadata advertises capabilities.
+        String documentId = DocumentsContract.getDocumentId(directoryUri);
+        if (!visited.add(documentId)) return;
+
+        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri, documentId);
+
+        String[] columns = {
+                Document.COLUMN_DOCUMENT_ID,
+                Document.COLUMN_DISPLAY_NAME,
+                Document.COLUMN_MIME_TYPE
+        };
+
+        try (Cursor cursor = getContentResolver().query(
+                childrenUri, columns, null, null, null)) {
+            if (cursor == null) {
+                throw new IllegalStateException(
+                        "Provider could not list this folder.");
+            }
+
+            int idColumn = cursor.getColumnIndex(Document.COLUMN_DOCUMENT_ID);
+            int nameColumn = cursor.getColumnIndex(Document.COLUMN_DISPLAY_NAME);
+            int mimeColumn = cursor.getColumnIndex(Document.COLUMN_MIME_TYPE);
+
+            if (idColumn < 0 || mimeColumn < 0) {
+                throw new IllegalStateException(
+                        "Provider returned incomplete folder information.");
+            }
+
+            while (cursor.moveToNext()) {
+                if (cancelRequested) {
+                    throw new IllegalStateException("Folder scan cancelled.");
+                }
+
+                String childId = cursor.getString(idColumn);
+                String mime = cursor.getString(mimeColumn);
+                String childName = nameColumn >= 0
+                        ? cursor.getString(nameColumn) : childId;
+
+                if (childId == null || mime == null) continue;
+
+                Uri childUri = DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri, childId);
+
+                if (Document.MIME_TYPE_DIR.equals(mime)) {
+                    collectFolderFiles(treeUri, childUri, found, visited, depth + 1);
+                } else {
+                    if (found.size() >= MAX_FOLDER_FILES) {
+                        throw new IllegalStateException(
+                                "Folder contains too many files; limit is "
+                                        + MAX_FOLDER_FILES + ".");
+                    }
+                    found.add(childUri);
+                }
+            }
+        }
+    }
+
+    private void validateDocumentAccess(Uri uri) throws Exception {
+        int permission = checkUriPermission(uri, android.os.Process.myPid(),
+                android.os.Process.myUid(),
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+        if (permission != PackageManager.PERMISSION_GRANTED) {
+            throw new SecurityException(
+                    "Android did not grant write access to this file. "
+                            + "Re-select it using the system picker.");
         }
 
         try (Cursor cursor = getContentResolver().query(uri,
-                new String[]{DocumentsContract.Document.COLUMN_FLAGS}, null, null, null)) {
+                new String[]{Document.COLUMN_FLAGS}, null, null, null)) {
             if (cursor == null || !cursor.moveToFirst()) {
-                throw new IllegalStateException("The storage provider did not expose document capabilities. "
-                        + "WipeFiles cannot safely modify this item.");
+                throw new IllegalStateException(
+                        "Provider did not expose document capabilities.");
             }
-            int flagsColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS);
-            if (flagsColumn < 0 || cursor.isNull(flagsColumn)) {
-                throw new IllegalStateException("The storage provider did not report write/delete support. "
-                        + "WipeFiles will not modify this file.");
+
+            int column = cursor.getColumnIndex(Document.COLUMN_FLAGS);
+            if (column < 0 || cursor.isNull(column)) {
+                throw new IllegalStateException(
+                        "Provider did not report write/delete support.");
             }
-            int documentFlags = cursor.getInt(flagsColumn);
-            if ((documentFlags & DocumentsContract.Document.FLAG_SUPPORTS_WRITE) == 0) {
-                throw new SecurityException("This provider does not support writing to the selected document.");
+
+            int flags = cursor.getInt(column);
+            if ((flags & Document.FLAG_SUPPORTS_WRITE) == 0) {
+                throw new SecurityException(
+                        "Provider does not support writing to this file.");
             }
-            if ((documentFlags & DocumentsContract.Document.FLAG_SUPPORTS_DELETE) == 0) {
-                throw new SecurityException("This provider does not support deleting the selected document.");
+            if ((flags & Document.FLAG_SUPPORTS_DELETE) == 0) {
+                throw new SecurityException(
+                        "Provider does not support deleting this file.");
             }
         }
 
-        // Opening in rw mode checks that a read/write descriptor can be obtained
-        // without truncating the original (unlike rwt, which truncates immediately).
-        try (ParcelFileDescriptor descriptor = getContentResolver().openFileDescriptor(uri, "rw")) {
-            if (descriptor == null) throw new SecurityException("Provider refused read/write access.");
+        try (ParcelFileDescriptor descriptor =
+                     getContentResolver().openFileDescriptor(uri, "rw")) {
+            if (descriptor == null) {
+                throw new SecurityException("Provider refused read/write access.");
+            }
         }
     }
 
@@ -249,16 +412,18 @@ public class MainActivity extends Activity {
         if (!wipeRunning) {
             stageView.setText("READY");
             if (operationLog.length() == 0) {
-                statusView.setText("Select files, review settings, then confirm.");
+                statusView.setText("Select files or a folder, review settings, then confirm.");
             }
         }
+
         wipeButton.setEnabled(!selectedFiles.isEmpty() && !wipeRunning);
         wipeButton.setAlpha(wipeButton.isEnabled() ? 1f : 0.55f);
     }
 
     private void confirmWipe() {
         if (selectedFiles.isEmpty()) {
-            Toast.makeText(this, "Select files first", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Select files or a folder first",
+                    Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -270,7 +435,7 @@ public class MainActivity extends Activity {
                 .setMessage("Files: " + selectedFiles.size()
                         + "\nOverwrite passes: " + passes
                         + "\nFilename-change attempts: " + renameAttempts
-                        + "\n\nThis operation is destructive. Continue only with files you can afford to lose.")
+                        + "\n\nThis is destructive. Continue only with files you can afford to lose.")
                 .setNegativeButton("Go back", null)
                 .setPositiveButton("Continue", (dialog, which) ->
                         startWipe(renameAttempts, passes))
@@ -289,6 +454,7 @@ public class MainActivity extends Activity {
     private void setRunningUi(boolean running) {
         wipeRunning = running;
         pickButton.setEnabled(!running);
+        pickFolderButton.setEnabled(!running);
         wipeButton.setEnabled(!running && !selectedFiles.isEmpty());
         cancelButton.setEnabled(running);
         cancelButton.setAlpha(running ? 1f : 0.55f);
@@ -299,7 +465,7 @@ public class MainActivity extends Activity {
             cancelRequested = true;
             cancelButton.setEnabled(false);
             stageView.setText("CANCELLATION REQUESTED");
-            appendLog("Cancellation requested; waiting for the next checkpoint. Any changes already made cannot be undone.");
+            appendLog("Cancellation requested. Changes already made cannot be undone.");
         }
     }
 
@@ -313,13 +479,8 @@ public class MainActivity extends Activity {
         appendLog("Starting operation for " + work.size() + " file(s).");
 
         new Thread(() -> {
-            int deleted = 0;
-            int failed = 0;
-            int cancelled = 0;
+            int deleted = 0, failed = 0, cancelled = 0;
 
-            // Preflight every selected item before modifying the first one. This
-            // prevents a later unsupported URI from being discovered after earlier
-            // files have already been encrypted or overwritten.
             try {
                 for (Uri uri : work) {
                     checkCancel();
@@ -328,7 +489,11 @@ public class MainActivity extends Activity {
                 logFromWorker("Storage access preflight passed for all selected files.");
             } catch (Cancelled e) {
                 logFromWorker("CANCELLED before changes: access preflight.");
-                runOnUiThread(() -> { setRunningUi(false); stageView.setText("CANCELLED"); });
+                runOnUiThread(() -> {
+                    setRunningUi(false);
+                    stageView.setText("CANCELLED");
+                    statusView.setText(operationLog.toString());
+                });
                 return;
             } catch (Exception e) {
                 logFromWorker("STOPPED BEFORE CHANGES: " + safeMessage(e));
@@ -352,13 +517,17 @@ public class MainActivity extends Activity {
                     update(fileNumber, work.size(), 0, "CHECKING ACCESS",
                             "Checking write access for " + name);
 
-                    // Repeat the capability check immediately before touching this file.
                     validateDocumentAccess(original);
                     checkCancel();
-                    logFromWorker("Encrypting " + name + " with AES-256-GCM using a temporary in-memory key.");
+
+                    logFromWorker("Encrypting " + name
+                            + " with AES-256-GCM using a temporary in-memory key.");
+
                     long encryptedSize = encryptAndReplaceWithCiphertext(
                             original, fileNumber, work.size(), name);
-                    logFromWorker("Encrypted content committed. Temporary AES key bytes cleared from the app buffer.");
+
+                    logFromWorker("Encrypted content committed. Temporary AES key bytes cleared "
+                            + "from the app buffer.");
 
                     for (int pass = 0; pass < passes; pass++) {
                         checkCancel();
@@ -366,22 +535,23 @@ public class MainActivity extends Activity {
                                 fileNumber, work.size(), name);
                     }
 
-                    // Renaming is optional and provider-specific. Do not attempt it:
-                    // deletion should use the original granted URI directly.
                     checkCancel();
                     update(fileNumber, work.size(), 97, "DELETING FILE", name);
-                    if (!DocumentsContract.deleteDocument(getContentResolver(), original)) {
+
+                    if (!DocumentsContract.deleteDocument(
+                            getContentResolver(), original)) {
                         throw new IllegalStateException(
-                                "The storage provider did not confirm deletion.");
+                                "Provider did not confirm deletion.");
                     }
 
                     deleted++;
-                    logFromWorker("SUCCESS: " + name + " — provider confirmed deletion; overwrite passes attempted: "
-                            + passes + ". Filename changes are skipped because providers may not support renaming.");
+                    logFromWorker("SUCCESS: " + name
+                            + " — provider confirmed deletion; overwrite passes attempted: "
+                            + passes + ". Physical erasure is not guaranteed.");
                 } catch (Cancelled e) {
                     cancelled++;
                     logFromWorker("CANCELLED: " + name
-                            + " — it may have been partly modified; deletion was not intentionally continued.");
+                            + " — it may have been partly modified.");
                     break;
                 } catch (Exception e) {
                     failed++;
@@ -398,7 +568,8 @@ public class MainActivity extends Activity {
             final int cancelledCount = cancelled;
 
             logFromWorker("FINISHED. Deleted: " + deletedCount
-                    + "; failed: " + failedCount + "; cancelled: " + cancelledCount + ".");
+                    + "; failed: " + failedCount
+                    + "; cancelled: " + cancelledCount + ".");
 
             runOnUiThread(() -> {
                 setRunningUi(false);
@@ -412,33 +583,36 @@ public class MainActivity extends Activity {
         }, "WipeFilesWorker").start();
     }
 
-    /**
-     * Encrypts the selected file to an app-private temporary file with AES-256-GCM,
-     * then replaces the selected document with nonce+ciphertext+authentication tag.
-     * The random key is never persisted. It is zeroed only after the encrypted bytes
-     * have been fully written and synced to the selected document.
-     */
     private long encryptAndReplaceWithCiphertext(Uri uri, int fileNumber,
-                                                  int fileTotal, String name) throws Exception {
+                                                  int fileTotal, String name)
+            throws Exception {
         checkCancel();
+
         byte[] key = new byte[32];
         byte[] nonce = new byte[12];
         random.nextBytes(key);
         random.nextBytes(nonce);
+
         File temp = File.createTempFile("wipefiles-", ".enc", getCacheDir());
         boolean committed = false;
-        long encryptedSize;
+        long encryptedSize = 0;
+
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"),
                     new GCMParameterSpec(128, nonce));
+
             try (InputStream input = getContentResolver().openInputStream(uri);
                  FileOutputStream fileOut = new FileOutputStream(temp)) {
-                if (input == null) throw new IllegalStateException("Cannot read selected file.");
+                if (input == null) {
+                    throw new IllegalStateException("Cannot read selected file.");
+                }
+
                 fileOut.write(nonce);
                 byte[] buffer = new byte[64 * 1024];
                 int count;
                 long read = 0;
+
                 while ((count = input.read(buffer)) != -1) {
                     checkCancel();
                     byte[] encryptedChunk = cipher.update(buffer, 0, count);
@@ -447,50 +621,57 @@ public class MainActivity extends Activity {
                     update(fileNumber, fileTotal, 10, "AES-256-GCM ENCRYPTION",
                             name + " · " + formatSize(read) + " encrypted");
                 }
+
                 byte[] finalChunk = cipher.doFinal();
                 if (finalChunk != null) fileOut.write(finalChunk);
                 Arrays.fill(buffer, (byte) 0);
                 fileOut.flush();
                 fileOut.getFD().sync();
             }
+
             encryptedSize = temp.length();
             if (encryptedSize < 28) {
                 throw new IllegalStateException("Encrypted output is unexpectedly short.");
             }
             checkCancel();
 
-            // rwt requests read/write access and truncation. Providers that refuse it
-            // fail here rather than pretending the selected document was replaced.
             try (ParcelFileDescriptor descriptor =
                          getContentResolver().openFileDescriptor(uri, "rwt")) {
-                if (descriptor == null) throw new IllegalStateException("Storage provider denied write access.");
-                try (FileOutputStream output = new FileOutputStream(descriptor.getFileDescriptor());
+                if (descriptor == null) {
+                    throw new IllegalStateException("Provider denied write access.");
+                }
+
+                try (FileOutputStream output =
+                             new FileOutputStream(descriptor.getFileDescriptor());
                      FileInputStream input = new FileInputStream(temp)) {
                     byte[] buffer = new byte[64 * 1024];
                     int count;
                     long copied = 0;
+
                     while ((count = input.read(buffer)) != -1) {
                         output.write(buffer, 0, count);
                         copied += count;
                         update(fileNumber, fileTotal, 20, "WRITING ENCRYPTED CONTENT",
-                                name + " · " + formatSize(copied) + " of " + formatSize(encryptedSize));
+                                name + " · " + formatSize(copied) + " of "
+                                        + formatSize(encryptedSize));
                     }
+
                     output.flush();
                     output.getFD().sync();
                     Arrays.fill(buffer, (byte) 0);
+
                     if (copied != encryptedSize) {
-                        throw new IllegalStateException("Encrypted content write was incomplete.");
+                        throw new IllegalStateException("Encrypted write was incomplete.");
                     }
                 }
             }
+
             committed = true;
-            Arrays.fill(key, (byte) 0);
             return encryptedSize;
         } finally {
-            // If replacement did not complete, clear the key buffer as we exit; no key
-            // is saved to disk. If replacement did complete, the key was already cleared.
             Arrays.fill(key, (byte) 0);
             Arrays.fill(nonce, (byte) 0);
+
             if (temp.exists() && !temp.delete()) {
                 logFromWorker("Warning: temporary encrypted cache file could not be deleted immediately.");
             }
@@ -501,11 +682,13 @@ public class MainActivity extends Activity {
     }
 
     private void overwritePass(Uri uri, long size, int pass, int totalPasses,
-                               int fileNumber, int fileTotal, String name) throws Exception {
+                               int fileNumber, int fileTotal, String name)
+            throws Exception {
         checkCancel();
 
         if (size < 0) size = fileSize(uri);
         if (size < 0) size = measureSize(uri);
+
         if (size == 0) {
             logFromWorker("File is empty; no content bytes to overwrite: " + name);
             return;
@@ -531,22 +714,22 @@ public class MainActivity extends Activity {
                     int chunk = (int) Math.min(buffer.length, size - written);
                     ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, chunk);
 
-                    while (byteBuffer.hasRemaining()) {
-                        channel.write(byteBuffer);
-                    }
+                    while (byteBuffer.hasRemaining()) channel.write(byteBuffer);
                     written += chunk;
 
-                    int passPercent = (int) (written * 100 / size);
-                    int overall = (int) (((pass + (passPercent / 100.0))
+                    int percent = (int) (written * 100 / size);
+                    int overall = (int) (((pass + percent / 100.0)
                             / totalPasses) * 85);
 
                     update(fileNumber, fileTotal, overall, "OVERWRITING CONTENT",
                             name + " · pass " + (pass + 1) + "/" + totalPasses
-                                    + " · " + passPercent + "%");
+                                    + " · " + percent + "%");
                 }
 
                 channel.force(true);
             }
+        } finally {
+            Arrays.fill(buffer, (byte) 0);
         }
     }
 
@@ -555,8 +738,8 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             stageView.setText(stage);
             progressBar.setProgress(Math.max(0, Math.min(progress, 100)));
-            statusView.setText("File " + fileNumber + " of " + total + "\n"
-                    + detail + "\n\n" + operationLog);
+            statusView.setText("File " + fileNumber + " of " + total
+                    + "\n" + detail + "\n\n" + operationLog);
         });
     }
 
@@ -579,6 +762,7 @@ public class MainActivity extends Activity {
     private long measureSize(Uri uri) throws Exception {
         long total = 0;
         byte[] buffer = new byte[64 * 1024];
+
         try (InputStream input = getContentResolver().openInputStream(uri)) {
             if (input == null) throw new IllegalStateException("Cannot read selected file.");
             int count;
@@ -586,12 +770,15 @@ public class MainActivity extends Activity {
                 checkCancel();
                 total += count;
             }
+        } finally {
+            Arrays.fill(buffer, (byte) 0);
         }
         return total;
     }
 
     private String displayName(Uri uri) {
-        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+        try (Cursor cursor = getContentResolver().query(
+                uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 if (column >= 0) {
@@ -600,12 +787,14 @@ public class MainActivity extends Activity {
                 }
             }
         } catch (Exception ignored) { }
+
         String fallback = uri.getLastPathSegment();
         return fallback == null ? "(unnamed file)" : fallback;
     }
 
     private long fileSize(Uri uri) {
-        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+        try (Cursor cursor = getContentResolver().query(
+                uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int column = cursor.getColumnIndex(OpenableColumns.SIZE);
                 if (column >= 0 && !cursor.isNull(column)) {
@@ -617,26 +806,18 @@ public class MainActivity extends Activity {
         return -1;
     }
 
-    private String randomHex(int length) {
-        char[] alphabet = "0123456789abcdef".toCharArray();
-        StringBuilder result = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            result.append(alphabet[random.nextInt(alphabet.length)]);
-        }
-        return result.toString();
-    }
-
     private String formatSize(long bytes) {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) {
             return String.format(Locale.getDefault(), "%.1f KB", bytes / 1024.0);
         }
-        return String.format(Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024.0));
+        return String.format(Locale.getDefault(), "%.1f MB",
+                bytes / (1024.0 * 1024.0));
     }
 
     private String safeMessage(Exception exception) {
         String message = exception.getMessage();
-        return (message == null || message.trim().isEmpty())
+        return message == null || message.trim().isEmpty()
                 ? exception.getClass().getSimpleName() : message;
     }
 }
